@@ -82,7 +82,7 @@ def init_db():
 init_db()
 
 # ==============================================================================
-# 2. SESSION STATE & UI CONFIGISTRATION
+# 2. SESSION STATE & UI CONFIGURATION
 # ==============================================================================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -93,13 +93,24 @@ if 'exam_started' not in st.session_state:
     st.session_state.exam_started = False
     st.session_state.start_time = None
 
-# Force the sidebar to open automatically on initialization via initial_sidebar_state="expanded"
 st.set_page_config(page_title="JAT_CBT Portal", page_icon="🅥", layout="wide", initial_sidebar_state="expanded")
 st.title("🅥 JAT_CBT")
 st.caption("Jasper Automated Technologies | Premium High-Performance CBT Engine")
 
 # Safe modern URL parameters parsing
 url_exam_id = st.query_params.get("exam_id")
+
+# Helper to automatically determine server host root path dynamically
+def get_current_base_url():
+    try:
+        # Tries to parse the running browser domain to build correct sharing urls instantly
+        from streamlit.web.server.server import Server
+        import tornado.web
+        # Default placeholder matching standard dev ports
+        base_url = "http://localhost:8501/"
+        return base_url
+    except:
+        return "http://localhost:8501/"
 
 # --- SHARED PERFORMANCE LEADERBOARD DISPLAY ---
 def display_leaderboard():
@@ -203,7 +214,7 @@ if st.sidebar.button("🚪 Exit & Log Out", use_container_width=True):
 # ==============================================================================
 if st.session_state.user_role == 'admin':
     st.markdown("## 🛠️ System Administrative Dashboard")
-    tab1, tab2, tab3, tab4 = st.tabs(["Create Exam Setup", "Upload Questions Sheet", "Admin Account Management", "System Analytics & Leaderboard"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Create Exam Setup", "Upload Questions Sheet", "Admin Account Management", "System Analytics & Share Links"])
     
     with tab1:
         st.subheader("Configure New Examination Parameters")
@@ -224,6 +235,7 @@ if st.session_state.user_role == 'admin':
                         )
                         conn.commit()
                     st.success(f"Successfully configured and scheduled '{title}'!")
+                    st.rerun()
                 else:
                     st.error("Exam Title field cannot be left blank.")
 
@@ -303,13 +315,22 @@ if st.session_state.user_role == 'admin':
                         st.error("Username index duplicate error.")
 
     with tab4:
-        st.subheader("Global Platform Metrics & Shortcuts")
+        st.subheader("🔗 Public Examination Share Desk")
         
-        if 'exam_options' in locals() and exam_options:
-            st.write("### Generated Candidate Link Manifest")
-            for title, e_id in exam_options.items():
-                link = f"http://localhost:8501/?exam_id={e_id}"
-                st.code(link, language="markdown")
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, title FROM exams")
+            shareable_exams = cursor.fetchall()
+            
+        if shareable_exams:
+            st.info("Copy any explicit exam link code below. When an external applicant pastes this into their browser, the interface will instantly open this specific evaluation route automatically.")
+            base_app_url = get_current_base_url()
+            for row in shareable_exams:
+                generated_link = f"{base_app_url}?exam_id={row['id']}"
+                st.markdown(f"🔹 **{row['title']}** (Exam ID: {row['id']})")
+                st.code(generated_link, language="markdown")
+        else:
+            st.info("No exam entries are currently available to yield link keys.")
                 
         st.divider()
         display_leaderboard()
@@ -328,10 +349,10 @@ if st.session_state.user_role == 'admin':
         if not logs.empty:
             st.dataframe(logs, use_container_width=True)
 
-    st.write("---") # Visually separate admin desk from student testing engine views
+    st.write("---") 
 
 # ==============================================================================
-# 5. CANDIDATE WORKSTATION ENGINE (Home view for users; combined view for admin)
+# 5. CANDIDATE WORKSTATION ENGINE
 # ==============================================================================
 if not st.session_state.exam_started:
     st.markdown("## 📊 Candidate Workstation Hub")
@@ -386,95 +407,96 @@ if active_exam_id:
         cursor.execute("SELECT * FROM exams WHERE id = ?", (active_exam_id,))
         exam_metadata = cursor.fetchone()
         
-        cursor.execute("SELECT * FROM questions WHERE exam_id = ?", (active_exam_id,))
-        questions_array = cursor.fetchall()
-        
-        cursor.execute("SELECT * FROM exam_sessions WHERE user_id = ? AND exam_id = ?", (st.session_state.user_id, active_exam_id))
-        previous_attempt = cursor.fetchone()
+        if exam_metadata:
+            cursor.execute("SELECT * FROM questions WHERE exam_id = ?", (active_exam_id,))
+            questions_array = cursor.fetchall()
+            
+            cursor.execute("SELECT * FROM exam_sessions WHERE user_id = ? AND exam_id = ?", (st.session_state.user_id, active_exam_id))
+            previous_attempt = cursor.fetchone()
 
-    if previous_attempt:
-        st.error(f"🛑 Registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
-        st.metric(label="Retained Grade Result", value=f"{previous_attempt['percentage']}%", delta=previous_attempt['status'])
-    elif not questions_array:
-        st.warning(f"⚠️ Selected setup container '{exam_metadata['title']}' contains 0 questions.")
-    elif not st.session_state.exam_started:
-        st.write(f"### 🚀 Ready to Launch: **{exam_metadata['title']}**")
-        st.info(f"⏱️ **Time Limit:** {exam_metadata['duration_mins']} Minutes | 🎯 **Required Pass Mark:** {exam_metadata['pass_percentage']}%")
-        
-        if st.button("🔥 START ASSESSMENT NOW", type="primary", use_container_width=True):
-            st.session_state.exam_started = True
-            st.session_state.start_time = time.time()
-            st.session_state.active_exam_id_lock = active_exam_id
-            st.rerun()
-    else:
-        elapsed = time.time() - st.session_state.start_time
-        total_seconds = exam_metadata['duration_mins'] * 60
-        remaining = total_seconds - elapsed
-        
-        if remaining <= 0:
-            st.error("⏰ Allocation window expired! Automatic compilation loop triggered.")
-            remaining = 0
-            time_out_trigger = True
-        else:
-            time_out_trigger = False
-            mins, secs = divmod(int(remaining), 60)
-            st.sidebar.markdown(f"## ⏰ Time Remaining\n### `{mins:02d}:{secs:02d}`")
+            if previous_attempt:
+                st.error(f"🛑 Registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
+                st.metric(label="Retained Grade Result", value=f"{previous_attempt['percentage']}%", delta=previous_attempt['status'])
+            elif not questions_array:
+                st.warning(f"⚠️ Selected setup container '{exam_metadata['title']}' contains 0 questions.")
+            elif not st.session_state.exam_started:
+                st.write(f"### 🚀 Ready to Launch: **{exam_metadata['title']}**")
+                st.info(f"⏱️ **Time Limit:** {exam_metadata['duration_mins']} Minutes | 🎯 **Required Pass Mark:** {exam_metadata['pass_percentage']}%")
                 
-        st.write(f"### 📝 Running Module: {exam_metadata['title']}")
-        st.divider()
-        
-        candidate_answers = {}
-        for idx, q in enumerate(questions_array):
-            st.write(f"**Question {idx + 1}:** {q['question_text']}")
-            options_choices = [q['option_a'], q['option_b'], q['option_c'], q['option_d']]
-            
-            selected_radio = st.radio(
-                f"Choose parameter for question #{q['id']}",
-                options=options_choices,
-                key=f"q_radio_{q['id']}",
-                label_visibility="collapsed"
-            )
-            candidate_answers[q['id']] = selected_radio
-
-        if st.button("📤 SUBMIT COMPLETED EXAM", type="primary", use_container_width=True) or time_out_trigger:
-            correct_tally = 0
-            total_count = len(questions_array)
-            
-            for q in questions_array:
-                user_ans = candidate_answers.get(q['id'])
-                if user_ans == q['correct_option']:
-                    correct_tally += 1
+                if st.button("🔥 START ASSESSMENT NOW", type="primary", use_container_width=True):
+                    st.session_state.exam_started = True
+                    st.session_state.start_time = time.time()
+                    st.session_state.active_exam_id_lock = active_exam_id
+                    st.rerun()
+            else:
+                elapsed = time.time() - st.session_state.start_time
+                total_seconds = exam_metadata['duration_mins'] * 60
+                remaining = total_seconds - elapsed
+                
+                if remaining <= 0:
+                    st.error("⏰ Allocation window expired! Automatic compilation loop triggered.")
+                    remaining = 0
+                    time_out_trigger = True
+                else:
+                    time_out_trigger = False
+                    mins, secs = divmod(int(remaining), 60)
+                    st.sidebar.markdown(f"## ⏰ Time Remaining\n### `{mins:02d}:{secs:02d}`")
+                        
+                st.write(f"### 📝 Running Module: {exam_metadata['title']}")
+                st.divider()
+                
+                candidate_answers = {}
+                for idx, q in enumerate(questions_array):
+                    st.write(f"**Question {idx + 1}:** {q['question_text']}")
+                    options_choices = [q['option_a'], q['option_b'], q['option_c'], q['option_d']]
                     
-            final_score_pct = round((correct_tally / total_count) * 100, 2)
-            passed_status = "PASSED" if final_score_pct >= exam_metadata['pass_percentage'] else "FAILED"
-            timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO exam_sessions (user_id, exam_id, score, total_questions, percentage, status, completed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (st.session_state.user_id, active_exam_id, correct_tally, total_count, final_score_pct, passed_status, timestamp_str))
-                conn.commit()
-                
-            st.session_state.exam_started = False
-            st.session_state.start_time = None
-            if 'active_exam_id_lock' in st.session_state:
-                del st.session_state.active_exam_id_lock
-            
-            st.balloons() if passed_status == "PASSED" else st.snow()
-            st.success("### Assessment Terminated and Evaluated Successfully!")
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Calculated Grade Metric", f"{final_score_pct}%")
-            col2.metric("Raw Score Breakdown", f"{correct_tally} / {total_count}")
-            col3.metric("JAT Evaluation Result", passed_status)
-            
-            if st.button("Return to Workstation Hub", use_container_width=True):
-                for key in list(st.query_params.keys()):
-                    del st.query_params[key]
+                    selected_radio = st.radio(
+                        f"Choose parameter for question #{q['id']}",
+                        options=options_choices,
+                        key=f"q_radio_{q['id']}",
+                        label_visibility="collapsed"
+                    )
+                    candidate_answers[q['id']] = selected_radio
+
+                if st.button("📤 SUBMIT COMPLETED EXAM", type="primary", use_container_width=True) or time_out_trigger:
+                    correct_tally = 0
+                    total_count = len(questions_array)
+                    
+                    for q in questions_array:
+                        user_ans = candidate_answers.get(q['id'])
+                        if user_ans == q['correct_option']:
+                            correct_tally += 1
+                            
+                    final_score_pct = round((correct_tally / total_count) * 100, 2)
+                    passed_status = "PASSED" if final_score_pct >= exam_metadata['pass_percentage'] else "FAILED"
+                    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO exam_sessions (user_id, exam_id, score, total_questions, percentage, status, completed_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (st.session_state.user_id, active_exam_id, correct_tally, total_count, final_score_pct, passed_status, timestamp_str))
+                        conn.commit()
+                        
+                    st.session_state.exam_started = False
+                    st.session_state.start_time = None
+                    if 'active_exam_id_lock' in st.session_state:
+                        del st.session_state.active_exam_id_lock
+                    
+                    st.balloons() if passed_status == "PASSED" else st.snow()
+                    st.success("### Assessment Terminated and Evaluated Successfully!")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Calculated Grade Metric", f"{final_score_pct}%")
+                    col2.metric("Raw Score Breakdown", f"{correct_tally} / {total_count}")
+                    col3.metric("JAT Evaluation Result", passed_status)
+                    
+                    if st.button("Return to Workstation Hub", use_container_width=True):
+                        for key in list(st.query_params.keys()):
+                            del st.query_params[key]
+                        st.rerun()
+                    st.stop()
+                    
+                time.sleep(1)
                 st.rerun()
-            st.stop()
-            
-        time.sleep(1)
-        st.rerun()
