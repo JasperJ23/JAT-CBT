@@ -93,90 +93,13 @@ if 'exam_started' not in st.session_state:
     st.session_state.exam_started = False
     st.session_state.start_time = None
 
-st.set_page_config(page_title="JAT_CBT Portal", page_icon="🅥", layout="wide")
+# Force the sidebar to open automatically on initialization via initial_sidebar_state="expanded"
+st.set_page_config(page_title="JAT_CBT Portal", page_icon="🅥", layout="wide", initial_sidebar_state="expanded")
 st.title("🅥 JAT_CBT")
 st.caption("Jasper Automated Technologies | Premium High-Performance CBT Engine")
 
 # Safe modern URL parameters parsing
 url_exam_id = st.query_params.get("exam_id")
-
-# ==============================================================================
-# 3. AUTHENTICATION GATEWAY
-# ==============================================================================
-if not st.session_state.logged_in:
-    col_info, col_action = st.columns([2, 1])
-    
-    with col_info:
-        st.markdown("""
-        ### Welcome to the JAT Assessment Portal
-        This computer-based testing platform belongs to **Jasper Automated Technologies**. 
-        
-        **How to navigate this portal:**
-        1. **Look at the left sidebar** panel on your screen.
-        2. Select **'Sign In'** if you already have an account profile.
-        3. Select **'Create Candidate Account'** if you are a new applicant registering for the first time.
-        4. Once you log in successfully, your dynamic scheduled test timeline dashboard will load up instantly right here.
-        """)
-        if url_exam_id:
-            st.warning(f"🎯 Action Required: You used a direct link to take **Exam ID #{url_exam_id}**. Please authorize your account via the sidebar to start writing immediately.")
-            
-    with col_action:
-        st.write("#### 🔐 Access Panel Quick-Switch")
-        auth_mode = st.radio("Choose Action:", ["Sign In", "Create Candidate Account"], label_visibility="collapsed")
-    
-    if auth_mode == "Sign In":
-        st.sidebar.subheader("🔒 Account Sign In")
-        login_user = st.sidebar.text_input("Username", key="login_user_input")
-        login_pass = st.sidebar.text_input("Password", type="password", key="login_pass_input")
-        
-        if st.sidebar.button("Log In to Portal", use_container_width=True, type="primary"):
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (login_user, login_pass))
-                account = cursor.fetchone()
-                if account:
-                    st.session_state.logged_in = True
-                    st.session_state.user_id = account['id']
-                    st.session_state.username = account['username']
-                    st.session_state.user_role = account['role']
-                    st.rerun()
-                else:
-                    st.sidebar.error("❌ Invalid Username or Password layout match.")
-                    
-    elif auth_mode == "Create Candidate Account":
-        st.sidebar.subheader("📝 New Candidate Sign Up")
-        reg_user = st.sidebar.text_input("Choose Username", key="reg_user_input").strip()
-        reg_pass = st.sidebar.text_input("Choose Password", type="password", key="reg_pass_input")
-        reg_pass_conf = st.sidebar.text_input("Confirm Password", type="password", key="reg_pass_conf_input")
-        
-        if st.sidebar.button("Register New Profile", use_container_width=True, type="primary"):
-            if not reg_user or not reg_pass:
-                st.sidebar.error("❌ Registration fields cannot be left blank.")
-            elif reg_pass != reg_pass_conf:
-                st.sidebar.error("❌ Confirmation passwords do not match.")
-            else:
-                try:
-                    with get_db_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'user')", (reg_user, reg_pass))
-                        conn.commit()
-                    st.sidebar.success("✅ Account registered! Choose 'Sign In' to log in.")
-                except sqlite3.IntegrityError:
-                    st.sidebar.error("❌ This username is already taken.")
-    st.stop()
-
-# --- GLOBAL SIDEBAR DISCONNECT CONTROL ---
-st.sidebar.write(f"👤 Active Profile: **{st.session_state.username}**")
-st.sidebar.caption(f"Role Scope: {st.session_state.user_role.upper()}")
-if st.sidebar.button("🚪 Exit & Log Out", use_container_width=True):
-    st.session_state.logged_in = False
-    st.session_state.user_id = None
-    st.session_state.username = ""
-    st.session_state.user_role = ""
-    st.session_state.exam_started = False
-    for key in list(st.query_params.keys()):
-        del st.query_params[key]
-    st.rerun()
 
 # --- SHARED PERFORMANCE LEADERBOARD DISPLAY ---
 def display_leaderboard():
@@ -200,9 +123,86 @@ def display_leaderboard():
         st.dataframe(leaderboard_df, use_container_width=True, hide_index=True)
 
 # ==============================================================================
-# 4. ADMINISTRATIVE WORKSPACE PANEL
+# 3. SIDEBAR NAVBAR AUTHENTICATION CHANNELS
+# ==============================================================================
+if not st.session_state.logged_in:
+    st.sidebar.subheader("🅥 Navigation Menu")
+    auth_mode = st.sidebar.radio("Go To:", ["Sign In Menu", "Register Account"])
+    
+    if auth_mode == "Sign In Menu":
+        st.sidebar.write("---")
+        st.sidebar.markdown("🔒 **Account Sign In**")
+        login_user = st.sidebar.text_input("Username", key="login_user_input")
+        login_pass = st.sidebar.text_input("Password", type="password", key="login_pass_input")
+        
+        if st.sidebar.button("Log In to Portal", use_container_width=True, type="primary"):
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (login_user, login_pass))
+                account = cursor.fetchone()
+                if account:
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = account['id']
+                    st.session_state.username = account['username']
+                    st.session_state.user_role = account['role']
+                    st.rerun()
+                else:
+                    st.sidebar.error("❌ Invalid Username or Password.")
+                    
+    elif auth_mode == "Register Account":
+        st.sidebar.write("---")
+        st.sidebar.markdown("📝 **Candidate Registration**")
+        reg_user = st.sidebar.text_input("Choose Username", key="reg_user_input").strip()
+        reg_pass = st.sidebar.text_input("Choose Password", type="password", key="reg_pass_input")
+        reg_pass_conf = st.sidebar.text_input("Confirm Password", type="password", key="reg_pass_conf_input")
+        
+        if st.sidebar.button("Register New Profile", use_container_width=True, type="primary"):
+            if not reg_user or not reg_pass:
+                st.sidebar.error("❌ Registration fields cannot be left blank.")
+            elif reg_pass != reg_pass_conf:
+                st.sidebar.error("❌ Confirmation passwords do not match.")
+            else:
+                try:
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'user')", (reg_user, reg_pass))
+                        conn.commit()
+                    st.sidebar.success("✅ Registered! Select 'Sign In Menu' above to log in.")
+                except sqlite3.IntegrityError:
+                    st.sidebar.error("❌ This username is already taken.")
+                    
+    # Welcome information splash screen for unauthenticated sessions
+    st.markdown("""
+    ### Welcome to the JAT Assessment Portal
+    This computer-based testing platform belongs to **Jasper Automated Technologies**. 
+    
+    **How to navigate this portal:**
+    1. **Look at the left sidebar** panel on your screen (already opened for you).
+    2. Toggle between **'Sign In Menu'** or **'Register Account'** inside the navbar options.
+    3. Enter your account credentials directly inside the navbar fields to log in.
+    """)
+    if url_exam_id:
+        st.warning(f"🎯 Action Required: You used a direct link to take **Exam ID #{url_exam_id}**. Please authorize your account via the sidebar navbar to start writing immediately.")
+    st.stop()
+
+# --- SIDEBAR AUTHENTICATED CONTROLS ---
+st.sidebar.write(f"👤 Active Profile: **{st.session_state.username}**")
+st.sidebar.caption(f"Role Scope: {st.session_state.user_role.upper()}")
+if st.sidebar.button("🚪 Exit & Log Out", use_container_width=True):
+    st.session_state.logged_in = False
+    st.session_state.user_id = None
+    st.session_state.username = ""
+    st.session_state.user_role = ""
+    st.session_state.exam_started = False
+    for key in list(st.query_params.keys()):
+        del st.query_params[key]
+    st.rerun()
+
+# ==============================================================================
+# 4. ADMINISTRATIVE WORKSPACE CONSOLE
 # ==============================================================================
 if st.session_state.user_role == 'admin':
+    st.markdown("## 🛠️ System Administrative Dashboard")
     tab1, tab2, tab3, tab4 = st.tabs(["Create Exam Setup", "Upload Questions Sheet", "Admin Account Management", "System Analytics & Leaderboard"])
     
     with tab1:
@@ -328,60 +328,59 @@ if st.session_state.user_role == 'admin':
         if not logs.empty:
             st.dataframe(logs, use_container_width=True)
 
-# ==============================================================================
-# 5. CANDIDATE EXAMINATION INTERFACE & TEST LOOP
-# ==============================================================================
-else:
-    if not st.session_state.exam_started:
-        st.markdown("""
-        ### 📊 Candidate Command Center
-        Welcome back, candidate! Below you will find your **Upcoming Examination Track Calendar**. 
-        """)
-        
-        st.write("#### 📅 Upcoming Examinations Schedule")
-        with get_db_connection() as conn:
-            upcoming_df = pd.read_sql_query("""
-                SELECT title as "Assessment Module", 
-                       exam_date as "Scheduled Date", 
-                       duration_mins as "Time Allowed (Mins)",
-                       pass_percentage as "Passing Grade Minimum (%)"
-                FROM exams 
-                WHERE is_active = 1
-                ORDER BY exam_date ASC
-        """, conn)
-            
-        if upcoming_df.empty:
-            st.info("No testing parameters are scheduled inside the upcoming track calendar timeline right now.")
-        else:
-            st.dataframe(upcoming_df, use_container_width=True, hide_index=True)
-            
-        st.divider()
-    
-    active_exam_id = None
-    if url_exam_id:
-        try:
-            active_exam_id = int(url_exam_id)
-        except ValueError:
-            pass
-    else:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM exams WHERE is_active = 1")
-            active_exams = cursor.fetchall()
-            
-        if not active_exams:
-            st.info("There are currently no active routes to open workspace assessments.")
-            st.stop()
-        elif not st.session_state.exam_started:
-            st.write("#### 📝 Choose Your Assessment Module Below")
-            exam_selector = st.selectbox("Click here to select the test you want to write:", options=[e['title'] for e in active_exams])
-            for e in active_exams:
-                if e['title'] == exam_selector:
-                    active_exam_id = e['id']
-        else:
-            if 'active_exam_id_lock' in st.session_state:
-                active_exam_id = st.session_state.active_exam_id_lock
+    st.write("---") # Visually separate admin desk from student testing engine views
 
+# ==============================================================================
+# 5. CANDIDATE WORKSTATION ENGINE (Home view for users; combined view for admin)
+# ==============================================================================
+if not st.session_state.exam_started:
+    st.markdown("## 📊 Candidate Workstation Hub")
+    st.markdown("Welcome back! Below you will find your **Upcoming Examination Track Calendar** and active module links.")
+    
+    st.write("#### 📅 Upcoming Examinations Schedule")
+    with get_db_connection() as conn:
+        upcoming_df = pd.read_sql_query("""
+            SELECT title as "Assessment Module", 
+                   exam_date as "Scheduled Date", 
+                   duration_mins as "Time Allowed (Mins)",
+                   pass_percentage as "Passing Grade Minimum (%)"
+            FROM exams 
+            WHERE is_active = 1
+            ORDER BY exam_date ASC
+    """, conn)
+        
+    if upcoming_df.empty:
+        st.info("No testing parameters are scheduled inside the track calendar timeline right now.")
+    else:
+        st.dataframe(upcoming_df, use_container_width=True, hide_index=True)
+        
+    st.divider()
+
+active_exam_id = None
+if url_exam_id:
+    try:
+        active_exam_id = int(url_exam_id)
+    except ValueError:
+        pass
+else:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM exams WHERE is_active = 1")
+        active_exams = cursor.fetchall()
+        
+    if not active_exams:
+        st.info("There are currently no active routes to open workspace assessments.")
+    elif not st.session_state.exam_started:
+        st.write("#### 📝 Choose Your Assessment Module Below")
+        exam_selector = st.selectbox("Select the test you want to write or evaluate:", options=[e['title'] for e in active_exams])
+        for e in active_exams:
+            if e['title'] == exam_selector:
+                active_exam_id = e['id']
+    else:
+        if 'active_exam_id_lock' in st.session_state:
+            active_exam_id = st.session_state.active_exam_id_lock
+
+if active_exam_id:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM exams WHERE id = ?", (active_exam_id,))
@@ -394,24 +393,19 @@ else:
         previous_attempt = cursor.fetchone()
 
     if previous_attempt:
-        st.error(f"🛑 Profile registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
+        st.error(f"🛑 Registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
         st.metric(label="Retained Grade Result", value=f"{previous_attempt['percentage']}%", delta=previous_attempt['status'])
-        st.stop()
-
-    if not questions_array:
+    elif not questions_array:
         st.warning(f"⚠️ Selected setup container '{exam_metadata['title']}' contains 0 questions.")
-        st.stop()
-
-    if not st.session_state.exam_started:
-        st.write(f"### 🚀 Launching: **{exam_metadata['title']}**")
+    elif not st.session_state.exam_started:
+        st.write(f"### 🚀 Ready to Launch: **{exam_metadata['title']}**")
         st.info(f"⏱️ **Time Limit:** {exam_metadata['duration_mins']} Minutes | 🎯 **Required Pass Mark:** {exam_metadata['pass_percentage']}%")
         
-        if st.button("🔥 START EXAM NOW", type="primary", use_container_width=True):
+        if st.button("🔥 START ASSESSMENT NOW", type="primary", use_container_width=True):
             st.session_state.exam_started = True
             st.session_state.start_time = time.time()
             st.session_state.active_exam_id_lock = active_exam_id
             st.rerun()
-
     else:
         elapsed = time.time() - st.session_state.start_time
         total_seconds = exam_metadata['duration_mins'] * 60
