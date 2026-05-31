@@ -67,8 +67,8 @@ def init_db():
                 percentage REAL NOT NULL,
                 status TEXT NOT NULL,
                 completed_at TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users (id),
-                FOREIGN KEY (exam_id) REFERENCES exams (id)
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE
             )
         """)
         
@@ -320,11 +320,9 @@ if st.session_state.exam_started:
         label_visibility="collapsed"
     )
     
-    # Only append choices to tracking matrix if the user clicks a real answer choice
     if user_choice != placeholder:
         st.session_state.answers_matrix[current_q['id']] = user_choice
     elif current_q['id'] in st.session_state.answers_matrix and user_choice == placeholder:
-        # If they reset it back to placeholder manually, clear it out
         del st.session_state.answers_matrix[current_q['id']]
     
     st.write("---")
@@ -387,7 +385,13 @@ st.caption("Jasper Automated Technologies | System Workspace Console")
 
 if st.session_state.user_role == 'admin':
     st.markdown("## 🛠️ System Administrative Dashboard")
-    tab1, tab2, tab3, tab4 = st.tabs(["Create Exam Setup", "Upload Questions Sheet", "Admin Account Management", "System Analytics & Share Links"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Create Exam Setup", 
+        "Upload Questions Sheet", 
+        "Admin Account Management", 
+        "System Analytics & Share Links",
+        "Manage Registered Users"
+    ])
     
     with tab1:
         st.subheader("Configure New Examination Parameters")
@@ -521,59 +525,131 @@ if st.session_state.user_role == 'admin':
         if not logs.empty:
             st.dataframe(logs, use_container_width=True)
 
+    with tab5:
+        st.subheader("👤 User Account Management Registry")
+        with get_db_connection() as conn:
+            users_query = pd.read_sql_query("SELECT id, username, role FROM users ORDER BY id DESC", conn)
+        
+        if users_query.empty:
+            st.info("No registered users found inside database.")
+        else:
+            for idx, user_row in users_query.iterrows():
+                u_id = user_row['id']
+                u_name = user_row['username']
+                u_role = user_row['role']
+                
+                # Prevent active admin from deleting their own session account context
+                if u_name == st.session_state.username:
+                    st.markdown(f"🔒 **{u_name}** ({u_role.upper()}) — *Current Active Session Profile*")
+                else:
+                    col_user_info, col_user_action = st.columns([4, 1])
+                    col_user_info.markdown(f"👤 **{u_name}** — Access Level Scope: `{u_role.upper()}`")
+                    if col_user_action.button(f"🗑️ Delete Account", key=f"del_user_{u_id}", type="secondary"):
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("DELETE FROM users WHERE id = ?", (u_id,))
+                            conn.commit()
+                        st.success(f"Successfully deleted user account record: {u_name}")
+                        st.rerun()
+                st.write("---")
+
     st.write("---")
 
 # ==============================================================================
-# 6. STANDARD USER STATION DASHBOARD VIEW
+# 6. STANDARD USER STATION DASHBOARD & PERFORMANCE HISTORY VIEW
 # ==============================================================================
 st.markdown("## 📊 Candidate Workstation Hub")
 
-active_exam_id = None
-if url_exam_id:
-    try:
-        active_exam_id = int(url_exam_id)
-    except ValueError:
-        pass
-else:
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM exams WHERE is_active = 1")
-        active_exams = cursor.fetchall()
-        
-    if not active_exams:
-        st.info("There are currently no active routes to open workspace assessments.")
+# Create simple tabs for taking exams vs viewing old histories
+user_tab1, user_tab2 = st.tabs(["🎯 Take Active Examinations", "📜 My Personal Exam History & Performance Analytics"])
+
+with user_tab1:
+    active_exam_id = None
+    if url_exam_id:
+        try:
+            active_exam_id = int(url_exam_id)
+        except ValueError:
+            pass
     else:
-        exam_selector = st.selectbox("Select the test you want to write or evaluate:", options=[e['title'] for e in active_exams])
-        for e in active_exams:
-            if e['title'] == exam_selector:
-                active_exam_id = e['id']
-
-if active_exam_id:
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM exams WHERE id = ?", (active_exam_id,))
-        exam_metadata = cursor.fetchone()
-        
-        if exam_metadata:
-            cursor.execute("SELECT COUNT(*) as qcount FROM questions WHERE exam_id = ?", (active_exam_id,))
-            q_count_check = cursor.fetchone()['qcount']
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM exams WHERE is_active = 1")
+            active_exams = cursor.fetchall()
             
-            cursor.execute("SELECT * FROM exam_sessions WHERE user_id = ? AND exam_id = ?", (st.session_state.user_id, active_exam_id))
-            previous_attempt = cursor.fetchone()
+        if not active_exams:
+            st.info("There are currently no active routes to open workspace assessments.")
+        else:
+            exam_selector = st.selectbox("Select the test you want to write or evaluate:", options=[e['title'] for e in active_exams])
+            for e in active_exams:
+                if e['title'] == exam_selector:
+                    active_exam_id = e['id']
 
-            if previous_attempt:
-                st.error(f"🛑 Security Registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
-                st.metric(label="Retained Grade Result", value=f"{previous_attempt['percentage']}%", delta=previous_attempt['status'])
-            elif q_count_check == 0:
-                st.warning(f"⚠️ Selected setup container '{exam_metadata['title']}' contains 0 questions.")
-            else:
-                st.write(f"### 🚀 Ready to Launch: **{exam_metadata['title']}**")
-                st.info(f"⏱️ **Time Limit:** {exam_metadata['duration_mins']} Minutes | 🎯 **Required Pass Mark:** {exam_metadata['pass_percentage']}% | 📋 **Total Questions:** {q_count_check}")
+    if active_exam_id:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM exams WHERE id = ?", (active_exam_id,))
+            exam_metadata = cursor.fetchone()
+            
+            if exam_metadata:
+                cursor.execute("SELECT COUNT(*) as qcount FROM questions WHERE exam_id = ?", (active_exam_id,))
+                q_count_check = cursor.fetchone()['qcount']
                 
-                if st.button("🔥 START RUNNING ASSESSMENT NOW", type="primary", use_container_width=True):
-                    st.session_state.exam_started = True
-                    st.session_state.start_time = time.time()
-                    st.session_state.active_exam_id_lock = active_exam_id
-                    st.session_state.current_q_index = 0
-                    st.session_state.answers_matrix = {}
-                    st.rerun()
+                cursor.execute("SELECT * FROM exam_sessions WHERE user_id = ? AND exam_id = ?", (st.session_state.user_id, active_exam_id))
+                previous_attempt = cursor.fetchone()
+
+                if previous_attempt:
+                    st.error(f"🛑 Security Registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
+                    st.metric(label="Retained Grade Result", value=f"{previous_attempt['percentage']}%", delta=previous_attempt['status'])
+                elif q_count_check == 0:
+                    st.warning(f"⚠️ Selected setup container '{exam_metadata['title']}' contains 0 questions.")
+                else:
+                    st.write(f"### 🚀 Ready to Launch: **{exam_metadata['title']}**")
+                    st.info(f"⏱️ **Time Limit:** {exam_metadata['duration_mins']} Minutes | 🎯 **Required Pass Mark:** {exam_metadata['pass_percentage']}% | 📋 **Total Questions:** {q_count_check}")
+                    
+                    if st.button("🔥 START RUNNING ASSESSMENT NOW", type="primary", use_container_width=True):
+                        st.session_state.exam_started = True
+                        st.session_state.start_time = time.time()
+                        st.session_state.active_exam_id_lock = active_exam_id
+                        st.session_state.current_q_index = 0
+                        st.session_state.answers_matrix = {}
+                        st.rerun()
+
+with user_tab2:
+    st.subheader(f"Performance Review Matrix for {st.session_state.username}")
+    
+    with get_db_connection() as conn:
+        personal_history_df = pd.read_sql_query("""
+            SELECT e.title AS "Exam Title", 
+                   s.score AS "Raw Score", 
+                   s.total_questions AS "Total Questions", 
+                   s.percentage AS "Score Percentage (%)", 
+                   s.status AS "Evaluation Status", 
+                   s.completed_at AS "Completion Time"
+            FROM exam_sessions s
+            JOIN exams e ON s.exam_id = e.id
+            WHERE s.user_id = ?
+            ORDER BY s.completed_at ASC
+        """, conn, params=(st.session_state.user_id,))
+        
+    if personal_history_df.empty:
+        st.info("You haven't completed any computer-based assessments yet.")
+    else:
+        # Performance Trajectory Analytics Chart Block (Last 5 Exams)
+        st.markdown("### 📈 Trajectory Analytics (Last 5 Exams Progress Trend)")
+        
+        # Pull last 5 attempts in chronological order for correct progressive trendlines
+        trajectory_df = personal_history_df.tail(5).copy()
+        
+        # Generate clean sequential index to force structural continuity across duplicate exam titles
+        trajectory_df['Attempt Index'] = range(1, len(trajectory_df) + 1)
+        trajectory_df['Label'] = trajectory_df['Attempt Index'].astype(str) + ". " + trajectory_df['Exam Title']
+        
+        # Format plotting payload structural frames
+        chart_data = trajectory_df[['Label', 'Score Percentage (%)']].set_index('Label')
+        
+        # Render clean trend chart native data vector loops
+        st.line_chart(chart_data)
+        
+        # Display Raw History Log Grid
+        st.markdown("### 📋 Historic Transcripts Record Log")
+        st.dataframe(personal_history_df.iloc[::-1], use_container_width=True, hide_index=True) # Reversed view shows recent first
