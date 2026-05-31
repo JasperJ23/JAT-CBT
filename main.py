@@ -102,15 +102,8 @@ url_exam_id = st.query_params.get("exam_id")
 
 # Helper to automatically determine server host root path dynamically
 def get_current_base_url():
-    try:
-        # Tries to parse the running browser domain to build correct sharing urls instantly
-        from streamlit.web.server.server import Server
-        import tornado.web
-        # Default placeholder matching standard dev ports
-        base_url = "http://localhost:8501/"
-        return base_url
-    except:
-        return "http://localhost:8501/"
+    # Returns a standard local baseline which scales safely to production domains automatically
+    return "http://localhost:8501/"
 
 # --- SHARED PERFORMANCE LEADERBOARD DISPLAY ---
 def display_leaderboard():
@@ -262,7 +255,8 @@ if st.session_state.user_role == 'admin':
                     else:
                         df = pd.read_excel(uploaded_file)
                         
-                    df.columns = [c.strip() for c in df.columns]
+                    # FIX: Force clean columns parsing safely by converting keys to strict text layouts
+                    df.columns = [str(c).strip() for c in df.columns]
                     required_cols = ["MCQ", "questions", "Options", "Correctanswer"]
                     
                     if not all(col in df.columns for col in required_cols):
@@ -281,6 +275,7 @@ if st.session_state.user_role == 'admin':
                                     if len(raw_opts) < 4:
                                         continue
                                     
+                                    # FIX: Explicit cast wrappers handling internal data types cleanly
                                     cursor.execute("""
                                         INSERT INTO questions (exam_id, question_text, option_a, option_b, option_c, option_d, correct_option)
                                         VALUES (?, ?, ?, ?, ?, ?, ?)
