@@ -538,7 +538,6 @@ if st.session_state.user_role == 'admin':
                 u_name = user_row['username']
                 u_role = user_row['role']
                 
-                # Prevent active admin from deleting their own session account context
                 if u_name == st.session_state.username:
                     st.markdown(f"🔒 **{u_name}** ({u_role.upper()}) — *Current Active Session Profile*")
                 else:
@@ -560,7 +559,6 @@ if st.session_state.user_role == 'admin':
 # ==============================================================================
 st.markdown("## 📊 Candidate Workstation Hub")
 
-# Create simple tabs for taking exams vs viewing old histories
 user_tab1, user_tab2 = st.tabs(["🎯 Take Active Examinations", "📜 My Personal Exam History & Performance Analytics"])
 
 with user_tab1:
@@ -594,18 +592,31 @@ with user_tab1:
                 cursor.execute("SELECT COUNT(*) as qcount FROM questions WHERE exam_id = ?", (active_exam_id,))
                 q_count_check = cursor.fetchone()['qcount']
                 
-                cursor.execute("SELECT * FROM exam_sessions WHERE user_id = ? AND exam_id = ?", (st.session_state.user_id, active_exam_id))
-                previous_attempt = cursor.fetchone()
+                # Fetch all previous attempts for this specific exam container
+                cursor.execute("SELECT * FROM exam_sessions WHERE user_id = ? AND exam_id = ? ORDER BY completed_at ASC", 
+                               (st.session_state.user_id, active_exam_id))
+                attempts_history = cursor.fetchall()
+                attempts_count = len(attempts_history)
 
-                if previous_attempt:
-                    st.error(f"🛑 Security Registry confirms you have already completed your evaluation for '{exam_metadata['title']}'.")
-                    st.metric(label="Retained Grade Result", value=f"{previous_attempt['percentage']}%", delta=previous_attempt['status'])
+                if attempts_count >= 5:
+                    st.error(f"🛑 Attempt Ceiling Reached! You have completed the maximum limit of 5 attempts for '{exam_metadata['title']}'.")
+                    
+                    # Group past records into a tidy visual block inside the warning frame
+                    st.write("**Your Past Attempt Track Records:**")
+                    for idx, past_run in enumerate(attempts_history):
+                        st.markdown(f"🔹 **Attempt #{idx+1}:** Grade Score: `{past_run['percentage']}%` — status: **{past_run['status']}** (Completed: *{past_run['completed_at']}*)")
                 elif q_count_check == 0:
                     st.warning(f"⚠️ Selected setup container '{exam_metadata['title']}' contains 0 questions.")
                 else:
                     st.write(f"### 🚀 Ready to Launch: **{exam_metadata['title']}**")
                     st.info(f"⏱️ **Time Limit:** {exam_metadata['duration_mins']} Minutes | 🎯 **Required Pass Mark:** {exam_metadata['pass_percentage']}% | 📋 **Total Questions:** {q_count_check}")
                     
+                    # Display current token count budget clear visibility parameters
+                    if attempts_count > 0:
+                        st.warning(f"ℹ️ Attention: You have already used `{attempts_count}` of your 5 maximum limit allocated attempts for this component module.")
+                    else:
+                        st.success("ℹ️ Clean Ledger Slate: This will register as your 1st configuration assessment attempt.")
+
                     if st.button("🔥 START RUNNING ASSESSMENT NOW", type="primary", use_container_width=True):
                         st.session_state.exam_started = True
                         st.session_state.start_time = time.time()
@@ -634,22 +645,14 @@ with user_tab2:
     if personal_history_df.empty:
         st.info("You haven't completed any computer-based assessments yet.")
     else:
-        # Performance Trajectory Analytics Chart Block (Last 5 Exams)
         st.markdown("### 📈 Trajectory Analytics (Last 5 Exams Progress Trend)")
         
-        # Pull last 5 attempts in chronological order for correct progressive trendlines
         trajectory_df = personal_history_df.tail(5).copy()
-        
-        # Generate clean sequential index to force structural continuity across duplicate exam titles
         trajectory_df['Attempt Index'] = range(1, len(trajectory_df) + 1)
         trajectory_df['Label'] = trajectory_df['Attempt Index'].astype(str) + ". " + trajectory_df['Exam Title']
         
-        # Format plotting payload structural frames
         chart_data = trajectory_df[['Label', 'Score Percentage (%)']].set_index('Label')
-        
-        # Render clean trend chart native data vector loops
         st.line_chart(chart_data)
         
-        # Display Raw History Log Grid
         st.markdown("### 📋 Historic Transcripts Record Log")
-        st.dataframe(personal_history_df.iloc[::-1], use_container_width=True, hide_index=True) # Reversed view shows recent first
+        st.dataframe(personal_history_df.iloc[::-1], use_container_width=True, hide_index=True)
